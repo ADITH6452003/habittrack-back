@@ -12,10 +12,13 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:5173',
+    'https://habittrack-front.vercel.app',
     'https://habittrack-front-ot1ch3crd-adiths-projects-6dd5238c.vercel.app',
-    /\.vercel\.app$/
+    /https:\/\/habittrack-front.*\.vercel\.app$/
   ],
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(bodyParser.json());
 
