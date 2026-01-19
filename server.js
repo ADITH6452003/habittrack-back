@@ -9,14 +9,8 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://habittrack-front.vercel.app',
-    'https://habittrack-front-ot1ch3crd-adiths-projects-6dd5238c.vercel.app',
-    /https:\/\/habittrack-front.*\.vercel\.app$/
-  ],
-  credentials: true,
+  origin: '*',
+  credentials: false,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
