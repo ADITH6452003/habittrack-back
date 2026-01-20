@@ -11,19 +11,6 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(bodyParser.json());
 
-// Add CORS headers middleware
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-  } else {
-    next();
-  }
-});
-
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -35,11 +22,6 @@ mongoose.connection.on('connected', () => {
 
 mongoose.connection.on('error', (err) => {
   console.error('MongoDB connection error:', err.message);
-  console.log('Please check your MongoDB Atlas IP whitelist and connection string');
-});
-
-mongoose.connection.on('disconnected', () => {
-  console.log('Disconnected from MongoDB');
 });
 
 // Test endpoint
@@ -94,17 +76,13 @@ app.post('/api/deletetask', async (req, res) => {
   try {
     const { userId, taskName } = req.body;
     
-    // Find all user data documents
     const userDataDocs = await UserData.find({ userId });
     
-    // Update each document to remove the task
     for (const doc of userDataDocs) {
       const taskIndex = doc.tasks.indexOf(taskName);
       if (taskIndex !== -1) {
-        // Remove task from array
         doc.tasks.splice(taskIndex, 1);
         
-        // Remove and update checkbox data
         const newCheckedTasks = new Map();
         doc.checkedTasks.forEach((value, key) => {
           const [oldTaskIndex, dayIndex] = key.split('-');
