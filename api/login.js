@@ -1,12 +1,28 @@
 const mongoose = require('mongoose');
 const { User } = require('../models');
 
-// Connect to MongoDB
-if (!mongoose.connections[0].readyState) {
-  mongoose.connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  });
+// Global connection variable
+let cachedConnection = null;
+
+async function connectToDatabase() {
+  if (cachedConnection) {
+    return cachedConnection;
+  }
+  
+  try {
+    const connection = await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      maxPoolSize: 1,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 5000,
+    });
+    cachedConnection = connection;
+    return connection;
+  } catch (error) {
+    console.error('MongoDB connection error:', error);
+    throw error;
+  }
 }
 
 export default async function handler(req, res) {
@@ -25,14 +41,18 @@ export default async function handler(req, res) {
   }
 
   try {
+    await connectToDatabase();
+    
     const { username, password } = req.body;
-    const user = await User.findOne({ username, password });
+    const user = await User.findOne({ username, password }).maxTimeMS(3000);
+    
     if (user) {
       res.json({ success: true, userId: user._id, username: user.username });
     } else {
       res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
   } catch (error) {
-    res.status(400).json({ success: false, error: error.message });
+    console.error('Login error:', error);
+    res.status(500).json({ success: false, error: 'Server error: ' + error.message });
   }
 }
