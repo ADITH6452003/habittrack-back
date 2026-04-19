@@ -137,6 +137,15 @@ app.get('/api/getdata/:userId/:month/:year', async (req, res) => {
   }
 });
 
+const RENDER_URL = process.env.RENDER_URL;
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  if (RENDER_URL) {
+    setInterval(() => {
+      fetch(`${RENDER_URL}/api/test`)
+        .then(() => console.log('Self-ping sent'))
+        .catch((err) => console.error('Self-ping failed:', err.message));
+    }, 14 * 60 * 1000);
+  }
 });
