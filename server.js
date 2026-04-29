@@ -211,7 +211,7 @@ app.get('/api/getdata/:userId/:month/:year', async (req, res) => {
 
 // ── Contracts (Social Vault) ──────────────────────────────────────────────────
 
-// Create contract
+// Send a challenge invite — only creator stakes points upfront
 app.post('/api/contracts', async (req, res) => {
   try {
     const { userId, friendUsername, habitName, deadline, stakePoints } = req.body;
@@ -221,12 +221,23 @@ app.post('/api/contracts', async (req, res) => {
 
     const friend = await User.findOne({ username: friendUsername });
     if (!friend) return res.status(404).json({ success: false, error: 'Friend not found' });
+    if (friend._id.toString() === userId) return res.status(400).json({ success: false, error: 'Cannot challenge yourself' });
 
-    // Reserve points
+    // Reserve creator points
     creator.points -= stakePoints;
     await creator.save();
 
-    const contract = new Contract({ creatorId: userId, friendUsername, habitName, deadline, stakePoints });
+    const contract = new Contract({
+      creatorId: userId,
+      creatorUsername: creator.username,
+      friendId: friend._id,
+      friendUsername,
+      habitName,
+      deadline,
+      stakePoints,
+      inviteStatus: 'pending',
+      status: 'pending',
+    });
     await contract.save();
     res.json({ success: true, contract, remainingPoints: creator.points });
   } catch (err) {
@@ -234,13 +245,88 @@ app.post('/api/contracts', async (req, res) => {
   }
 });
 
-// Get contracts for a user (created by or involving them)
+// Accept invite — friend stakes their points and contract goes active
+app.post('/api/contracts/:contractId/accept', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const contract = await Contract.findById(req.params.contractId);
+    if (!contract) return res.status(404).json({ success: false, error: 'Contract not found' });
+    if (contract.friendId.toString() !== userId) return res.status(403).json({ success: false, error: 'Unauthorized' });
+    if (contract.inviteStatus !== 'pending') return res.status(400).json({ success: false, error: 'Invite already responded to' });
+
+    const friend = await User.findById(userId);
+    if (friend.points < contract.stakePoints) return res.status(400).json({ success: false, error: 'Insufficient points to accept' });
+
+    // Reserve friend points
+    friend.points -= contract.stakePoints;
+    await friend.save();
+
+    contract.inviteStatus = 'accepted';
+    contract.status       = 'active';
+    await contract.save();
+    res.json({ success: true, remainingPoints: friend.points });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Decline invite — refund creator points
+app.post('/api/contracts/:contractId/decline', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const contract = await Contract.findById(req.params.contractId);
+    if (!contract) return res.status(404).json({ success: false, error: 'Contract not found' });
+    if (contract.friendId.toString() !== userId) return res.status(403).json({ success: false, error: 'Unauthorized' });
+    if (contract.inviteStatus !== 'pending') return res.status(400).json({ success: false, error: 'Invite already responded to' });
+
+    // Refund creator
+    await User.findByIdAndUpdate(contract.creatorId, { $inc: { points: contract.stakePoints } });
+
+    contract.inviteStatus = 'declined';
+    contract.status       = 'failed';
+    await contract.save();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Mark your side as done — if both done, complete and refund both
+app.post('/api/contracts/:contractId/done', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const contract = await Contract.findById(req.params.contractId);
+    if (!contract) return res.status(404).json({ success: false, error: 'Contract not found' });
+    if (contract.status !== 'active') return res.status(400).json({ success: false, error: 'Contract is not active' });
+
+    const isCreator = contract.creatorId.toString() === userId;
+    const isFriend  = contract.friendId.toString() === userId;
+    if (!isCreator && !isFriend) return res.status(403).json({ success: false, error: 'Unauthorized' });
+
+    if (isCreator) contract.creatorDone = true;
+    if (isFriend)  contract.friendDone  = true;
+
+    // Both done → complete, refund both
+    if (contract.creatorDone && contract.friendDone) {
+      contract.status = 'completed';
+      await User.findByIdAndUpdate(contract.creatorId, { $inc: { points: contract.stakePoints } });
+      await User.findByIdAndUpdate(contract.friendId,  { $inc: { points: contract.stakePoints } });
+    }
+
+    await contract.save();
+    res.json({ success: true, creatorDone: contract.creatorDone, friendDone: contract.friendDone, status: contract.status });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Get contracts for a user
 app.get('/api/contracts/:userId', async (req, res) => {
   try {
     const user = await User.findById(req.params.userId);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
     const contracts = await Contract.find({
-      $or: [{ creatorId: req.params.userId }, { friendUsername: user.username }]
+      $or: [{ creatorId: req.params.userId }, { friendId: user._id }]
     }).sort({ createdAt: -1 });
     res.json({ success: true, contracts });
   } catch (err) {
@@ -248,37 +334,27 @@ app.get('/api/contracts/:userId', async (req, res) => {
   }
 });
 
-// Mark contract as completed
-app.post('/api/contracts/:contractId/complete', async (req, res) => {
-  try {
-    const { userId } = req.body;
-    const contract = await Contract.findById(req.params.contractId);
-    if (!contract) return res.status(404).json({ success: false, error: 'Contract not found' });
-    if (contract.creatorId.toString() !== userId) return res.status(403).json({ success: false, error: 'Unauthorized' });
-
-    contract.status = 'completed';
-    await contract.save();
-
-    // Refund points to creator
-    await User.findByIdAndUpdate(userId, { $inc: { points: contract.stakePoints } });
-    res.json({ success: true });
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-// ── Cron: check expired contracts daily at midnight ───────────────────────────
+// ── Cron: check expired active contracts daily at midnight ────────────────────
 cron.schedule('0 0 * * *', async () => {
   try {
     const expired = await Contract.find({ status: 'active', deadline: { $lt: new Date() } });
     for (const c of expired) {
       c.status = 'failed';
       await c.save();
-      // Transfer staked points to friend as penalty
-      const friend = await User.findOne({ username: c.friendUsername });
-      if (friend) {
-        friend.points += c.stakePoints;
-        await friend.save();
+      // Whoever didn't mark done loses their stake to the other
+      if (!c.creatorDone && c.friendDone) {
+        // Creator failed — friend gets creator's stake
+        await User.findByIdAndUpdate(c.friendId,  { $inc: { points: c.stakePoints } });
+        await User.findByIdAndUpdate(c.friendId,  { $inc: { points: c.stakePoints } }); // refund + penalty
+      } else if (c.creatorDone && !c.friendDone) {
+        // Friend failed — creator gets friend's stake
+        await User.findByIdAndUpdate(c.creatorId, { $inc: { points: c.stakePoints * 2 } });
+      } else if (!c.creatorDone && !c.friendDone) {
+        // Both failed — no one gets anything (points already deducted)
+      } else {
+        // Both done but cron ran before done endpoint — refund both
+        await User.findByIdAndUpdate(c.creatorId, { $inc: { points: c.stakePoints } });
+        await User.findByIdAndUpdate(c.friendId,  { $inc: { points: c.stakePoints } });
       }
     }
     if (expired.length) console.log(`Processed ${expired.length} expired contracts`);

@@ -35,13 +35,24 @@ const userDataSchema = new mongoose.Schema({
 
 // Social vault contracts
 const contractSchema = new mongoose.Schema({
-  creatorId:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  friendUsername:  { type: String, required: true },
-  habitName:       { type: String, required: true },
-  deadline:        { type: Date, required: true },
-  stakePoints:     { type: Number, required: true },
-  status:          { type: String, enum: ['active', 'completed', 'failed'], default: 'active' },
-  createdAt:       { type: Date, default: Date.now },
+  creatorId:         { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  creatorUsername:   { type: String, required: true },
+  friendId:          { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  friendUsername:    { type: String, required: true },
+  habitName:         { type: String, required: true },
+  deadline:          { type: Date, required: true },
+  stakePoints:       { type: Number, required: true },   // each side stakes this amount
+
+  // invite lifecycle: pending → accepted or declined
+  inviteStatus:      { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' },
+
+  // both sides must mark done for contract to complete successfully
+  creatorDone:       { type: Boolean, default: false },
+  friendDone:        { type: Boolean, default: false },
+
+  // overall contract status
+  status:            { type: String, enum: ['pending', 'active', 'completed', 'failed'], default: 'pending' },
+  createdAt:         { type: Date, default: Date.now },
 });
 
 const User     = mongoose.model('User', userSchema);
